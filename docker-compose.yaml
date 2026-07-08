@@ -1,0 +1,24 @@
+services:
+
+  webrtc-client:
+    build: ./webrtc-client
+    container_name: webrtc-client
+    ports:
+      - "3000:3000"
+
+  signaling-server:
+    build: ./Signalling-server
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8080:8080"
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+
