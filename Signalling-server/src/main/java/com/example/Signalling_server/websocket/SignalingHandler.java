@@ -159,6 +159,10 @@ public class SignalingHandler extends TextWebSocketHandler {
 
             SocketData instance =(SocketData) redisTemplate.opsForValue().get("socket:" + target);
 
+            if (instance == null) {
+                return;
+            }
+
             redisTemplate.convertAndSend(
                     "signal:" + instance.getInstanceId(),
                     new RedisSignalMessage(target,msg)
@@ -271,7 +275,11 @@ public class SignalingHandler extends TextWebSocketHandler {
 
             }else {
                 SocketData data = (SocketData) redisTemplate.opsForValue().get("socket:" + room.getGuestId());
-                redisTemplate.convertAndSend("signal:" + data.getInstanceId(), new SignalMessage("BYE",room.getRoomId(),null));
+
+                if (data == null) {
+                    return;
+                }
+                redisTemplate.convertAndSend("signal:" + data.getInstanceId(), new RedisSignalMessage(room.getGuestId(),new SignalMessage("BYE",room.getRoomId(),null)));
             }
 
             roomService.removeSession(session);
@@ -295,17 +303,10 @@ public class SignalingHandler extends TextWebSocketHandler {
 
             }else {
                 SocketData data = (SocketData) redisTemplate.opsForValue().get("socket:" + room.getHostId());
-                redisTemplate.convertAndSend("signal:" + data.getInstanceId(), new SignalMessage("BYE",room.getRoomId(),null));
-            }
-
-            //this is for the user who ended call himself to make sure he is in the instance before trying the delete if not send a pub sub call
-            boolean exists = roomService.existsInSocket(session.getId());
-
-            if(exists){
-                roomService.removeSession(session);
-            }else {
-                SocketData data = (SocketData) redisTemplate.opsForValue().get(room.getHostId());
-                redisTemplate.convertAndSend("signal:" + data.getInstanceId(),new SignalMessage("END_CALL",room.getRoomId(),null));
+                if (data == null) {
+                    return;
+                }
+                redisTemplate.convertAndSend("signal:" + data.getInstanceId(), new RedisSignalMessage(room.getHostId(),new SignalMessage("BYE",room.getRoomId(),null)));
             }
 
             roomService.removeSession(session);
@@ -341,6 +342,10 @@ public class SignalingHandler extends TextWebSocketHandler {
 
             } else {
                 SocketData data = (SocketData) redisTemplate.opsForValue().get("socket:" + room.getHostId());
+
+                if(data == null){
+                    return;
+                }
 
                 redisTemplate.convertAndSend(
                         "signal:" + data.getInstanceId(),
