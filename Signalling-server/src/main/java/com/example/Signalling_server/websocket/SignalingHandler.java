@@ -1,7 +1,10 @@
 package com.example.Signalling_server.websocket;
 
+import com.example.Signalling_server.config.RedisSubscriber;
+import com.example.Signalling_server.dto.RedisSignalMessage;
 import com.example.Signalling_server.dto.Room;
 import com.example.Signalling_server.dto.SignalMessage;
+import com.example.Signalling_server.dto.SocketData;
 import com.example.Signalling_server.service.RoomService;
 import com.example.Signalling_server.utils.InstanceInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -129,7 +132,7 @@ public class SignalingHandler extends TextWebSocketHandler {
             return;
         }
 
-        WebSocketSession target =
+        String  target =
                 getTarget(
                         room,
                         sender
@@ -145,10 +148,24 @@ public class SignalingHandler extends TextWebSocketHandler {
                 msg.roomId()
         );
 
-        send(
-                target,
-                msg
-        );
+
+        if(roomService.existsInSocket(target)){
+            send(
+                    roomService.provideSession(target),
+                    msg
+            );
+
+        }else{
+
+            SocketData instance =(SocketData) redisTemplate.opsForValue().get("socket:" + target);
+
+            redisTemplate.convertAndSend(
+                    "signal:" + instance.getInstanceId(),
+                    new RedisSignalMessage(target,msg)
+            );
+        }
+
+
     }
 
     private void send(
@@ -169,7 +186,7 @@ public class SignalingHandler extends TextWebSocketHandler {
         );
     }
 
-    private WebSocketSession getTarget(
+    private String getTarget(
             Room room,
             WebSocketSession sender
     ) {
@@ -185,10 +202,10 @@ public class SignalingHandler extends TextWebSocketHandler {
                                 room.getHostId()
                         )
         ) {
-            return roomService.provideSession(room.getGuestId());
+            return room.getGuestId();
         }
 
-        return roomService.provideSession(room.getHostId());
+        return room.getHostId();
     }
 
     @Override
@@ -202,45 +219,23 @@ public class SignalingHandler extends TextWebSocketHandler {
         );
     }
 
-
-
-    /**
-     * REFACTORING NOTE: Legacy "BYE" Architecture and Frontend State Workaround
-
-     * HISTORY OF THE COMPONENT:
-     * This complex handshaking loop was initially created by mistake under an over-engineered
-     * assumption about room management. Once deployed, we realized that for a simple 1-on-1 call,
-     * it would be far simpler to just destroy the entire room object and forcefully sever all socket
-     * descriptors the moment either user left.
-
-     * WHY WE DID NOT SCRAP IT (THE CRITICAL FRONTEND TRAP):
-     * Despite being overly verbose, we deliberately chose to keep this "BYE" mechanism because
-     * it accidentally solved a fatal WebRTC architectural limitation on our frontend:
-
-     * 1. WebRTC Peer Connections are strictly non-reusable once an initial negotiation completes.
-     *    If we simply vaporized the room on the backend, the user left behind would stay stuck
-     *    in an active, stale connection state, waiting for media tracks from a dead session.
-     * 2. Because our 1-on-1 frontend is currently unable to dynamically unbind, tear down, and
-     *    re-map a fresh peer connection instance to a *new* participant on the fly while staying
-     *    in the same room view, the old session completely blocks any new users from connecting.
-
-     * HOW THE ACCIDENTAL LOOP SAFELY RESOLVES THIS:
-     * Instead of rewrite-refactoring our entire network state mapping, this legacy flow acts as
-     * a perfect safety net. User A leaves -> Backend sends a "BYE" eviction notice to User B ->
-     * User B catches the signal and runs `window.location.href = "/"`.
-
-     * This hard redirect forces the frontend to unmount, which is the only way our app currently
-     * stops camera hardware, closes ports, and kills the dead reference objects. Once User B is
-     * kicked out, their socket drops violently, tripping the fallback loop which cleanly wipes the
-     * room out of the ConcurrentHashMap anyway.
-
-     * TL;DR: It is not the most graceful or shortest way to code a teardown, but it functions
-     * flawlessly under network drops and manual hang-ups, so we are keeping it as is.
-     */
-
-
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+
+        SocketData data =
+                (SocketData) redisTemplate.opsForValue()
+                        .get("socket:" + session.getId());
+
+        if(data == null){
+            return;
+        }
+        Room room =
+                roomService.getRoom(data.getRoomId());
+
+        if(room == null){
+            roomService.removeSession(session);
+            return;
+        }
 
 
     }
@@ -259,28 +254,60 @@ public class SignalingHandler extends TextWebSocketHandler {
             return;
         }
 
-        if(session.getId() != null && session.getId().equals(room.getHostId())){
-            send(
-                    roomService.provideSession(room.getGuestId()),
-                    new SignalMessage(
-                            "BYE",
-                            msg.roomId(),
-                            null
+        if(session.getId().equals(room.getHostId())){
 
-                    )
-            );
+            //this is for the receiver check if the user exists in the instance if not send a pub sub call
+            boolean receiverExists = roomService.existsInSocket(room.getGuestId());
+            if(receiverExists){
+                send(
+                        roomService.provideSession(room.getGuestId()),
+                        new SignalMessage(
+                                "BYE",
+                                msg.roomId(),
+                                null
+
+                        )
+                );
+
+            }else {
+                SocketData data = (SocketData) redisTemplate.opsForValue().get("socket:" + room.getGuestId());
+                redisTemplate.convertAndSend("signal:" + data.getInstanceId(), new SignalMessage("BYE",room.getRoomId(),null));
+            }
+
             roomService.removeSession(session);
             redisTemplate.delete("room:" + msg.roomId());
-        }else if(session.getId() != null && session.getId().equals(room.getGuestId())){
-            send(
-                    roomService.provideSession(room.getHostId()),
-                    new SignalMessage(
-                            "BYE",
-                            msg.roomId(),
-                            null
 
-                    )
-            );
+
+        }else if( session.getId().equals(room.getGuestId())){
+
+            //this is for the receiver check if the user exists in the instance if not send a pub sub call
+            boolean receiverExists = roomService.existsInSocket(room.getHostId());
+            if(receiverExists){
+                send(
+                        roomService.provideSession(room.getHostId()),
+                        new SignalMessage(
+                                "BYE",
+                                msg.roomId(),
+                                null
+
+                        )
+                );
+
+            }else {
+                SocketData data = (SocketData) redisTemplate.opsForValue().get("socket:" + room.getHostId());
+                redisTemplate.convertAndSend("signal:" + data.getInstanceId(), new SignalMessage("BYE",room.getRoomId(),null));
+            }
+
+            //this is for the user who ended call himself to make sure he is in the instance before trying the delete if not send a pub sub call
+            boolean exists = roomService.existsInSocket(session.getId());
+
+            if(exists){
+                roomService.removeSession(session);
+            }else {
+                SocketData data = (SocketData) redisTemplate.opsForValue().get(room.getHostId());
+                redisTemplate.convertAndSend("signal:" + data.getInstanceId(),new SignalMessage("END_CALL",room.getRoomId(),null));
+            }
+
             roomService.removeSession(session);
             redisTemplate.delete("room:" + msg.roomId());
 
@@ -301,19 +328,33 @@ public class SignalingHandler extends TextWebSocketHandler {
         boolean ready = roomService.markReadyStatus(session, room);
 
         if (ready) {
-            send(
-                    roomService.provideSession(room.getHostId()),
-                    new SignalMessage(
-                            "PEER_JOINED",
-                            message.roomId(),
-                            null
-                    )
-            );
+
+            if(roomService.existsInSocket(room.getHostId())){
+                send(
+                        roomService.provideSession(room.getHostId()),
+                        new SignalMessage(
+                                "PEER_JOINED",
+                                message.roomId(),
+                                null
+                        )
+                );
+
+            } else {
+                SocketData data = (SocketData) redisTemplate.opsForValue().get("socket:" + room.getHostId());
+
+                redisTemplate.convertAndSend(
+                        "signal:" + data.getInstanceId(),
+                        new RedisSignalMessage(room.getHostId(),new SignalMessage("PEER_JOINED", message.roomId(),null))
+                );
+
+
+            }
+
         }
 
         redisTemplate.opsForValue().set(
                 "socket:" + session.getId(),
-                info.getInstanceId()
+                new SocketData(message.roomId(),info.getInstanceId())
         );
 
     }

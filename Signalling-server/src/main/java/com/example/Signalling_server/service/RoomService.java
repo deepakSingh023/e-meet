@@ -55,7 +55,7 @@ public class RoomService {
     public boolean joinRoom(String roomId,
                             WebSocketSession guest) {
 
-        Room room = (Room) redisTemplate.opsForValue().get(roomId);
+        Room room = (Room) redisTemplate.opsForValue().get("room:" + roomId);
 
         if (room == null) {
             return false;
@@ -76,7 +76,7 @@ public class RoomService {
     public Room getRoom(
             String roomId
     ) {
-          return  (Room) redisTemplate.opsForValue().get(roomId);
+          return  (Room) redisTemplate.opsForValue().get("room:" + roomId);
     }
 
 
@@ -123,6 +123,17 @@ public class RoomService {
 
     public WebSocketSession provideSession(String id){
         return sessionMap.get(id);
+    }
+
+    public boolean existsInSocket(String socketId){
+
+        WebSocketSession session = sessionMap.get(socketId);
+
+        if(session != null){
+            return true;
+        }
+
+        return false;
     }
 
 
