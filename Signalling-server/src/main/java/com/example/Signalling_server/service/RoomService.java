@@ -1,19 +1,18 @@
 package com.example.Signalling_server.service;
 
+
 import com.example.Signalling_server.dto.Room;
-import com.example.Signalling_server.dto.SignalMessage;
-import com.example.Signalling_server.dto.SocketData;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.WebSocketSession;
-
-import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 
 @Service
@@ -23,9 +22,13 @@ public class RoomService {
 
     private final RedisTemplate<String, Object> redisTemplate;
 
+    private final RedissonClient redissonClient;
 
-    RoomService(RedisTemplate<String, Object> redisTemplate){
+
+    RoomService(RedisTemplate<String, Object> redisTemplate,
+                RedissonClient redissonClient){
         this.redisTemplate = redisTemplate;
+        this.redissonClient = redissonClient;
 
     }
 
@@ -53,24 +56,55 @@ public class RoomService {
     }
 
     public boolean joinRoom(String roomId,
-                            WebSocketSession guest) {
+                            WebSocketSession guest){
 
-        Room room = (Room) redisTemplate.opsForValue().get("room:" + roomId);
+        RLock lock =
+                redissonClient.getLock("room-lock:" + roomId);
 
-        if (room == null) {
+
+
+        try {
+            if (!lock.tryLock(2, 5, TimeUnit.SECONDS)) {
+                return false;
+            }
+
+            Room room = getRoom(roomId);
+
+            if (room == null) {
+                return false;
+            }
+
+            if (room.getGuestId() != null) {
+                return false;
+            }
+
+            sessionMap.put(
+                    guest.getId(),
+                    guest
+            );
+
+            room.setGuestId(
+                    guest.getId()
+            );
+
+            redisTemplate.opsForValue().set(
+                    "room:" + roomId,
+                    room
+            );
+
+            return true;
+
+        } catch (InterruptedException e) {
+
+            Thread.currentThread().interrupt();
             return false;
+        }finally {
+
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+
         }
-
-        if (room.getGuestId() != null) {
-            return false;
-        }
-
-        sessionMap.put(guest.getId(), guest);
-
-        room.setGuestId(guest.getId());
-        redisTemplate.opsForValue().set("room:" + roomId,room);
-
-        return true;
     }
 
     public Room getRoom(
@@ -118,22 +152,128 @@ public class RoomService {
                 room.isGuestReady()
         );
 
+        redisTemplate.opsForValue().set("room:" + room.getRoomId(),room);
+
         return room.isHostReady() && room.isGuestReady();
     }
 
     public WebSocketSession provideSession(String id){
+
         return sessionMap.get(id);
     }
 
     public boolean existsInSocket(String socketId){
 
-        WebSocketSession session = sessionMap.get(socketId);
-
-        if(session != null){
-            return true;
+        if (socketId == null) {
+            return false;
         }
+        return sessionMap.get(socketId) != null;
+    }
 
-        return false;
+
+
+    public String cleanupRoom(Room room, String disconnectedSocketId) {
+
+        RLock lock = redissonClient.getLock("room-lock:" + room.getRoomId());
+
+        try {
+
+            if (!lock.tryLock(2, 5, TimeUnit.SECONDS)) {
+                return null;
+            }
+
+            Room current = getRoom(room.getRoomId());
+
+            if (current == null) {
+                return null;
+            }
+
+            String peerId;
+
+            if (disconnectedSocketId.equals(current.getHostId())) {
+
+                peerId = current.getGuestId();
+
+            } else if (disconnectedSocketId.equals(current.getGuestId())) {
+
+                peerId = current.getHostId();
+
+            } else {
+
+                return null;
+
+            }
+
+            sessionMap.remove(disconnectedSocketId);
+            redisTemplate.delete("socket:" + disconnectedSocketId);
+            redisTemplate.delete("room:" + current.getRoomId());
+
+            return peerId;
+
+        } catch (InterruptedException e) {
+
+            Thread.currentThread().interrupt();
+            return null;
+
+        } finally {
+
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+
+        }
+    }
+
+    public String endCall(Room room, String callerSocketId) {
+
+        RLock lock = redissonClient.getLock("room-lock:" + room.getRoomId());
+
+        try {
+
+            if (!lock.tryLock(2, 5, TimeUnit.SECONDS)) {
+                return null;
+            }
+
+            Room current = getRoom(room.getRoomId());
+
+            if (current == null) {
+                return null;
+            }
+
+            String peerId;
+
+            if (callerSocketId.equals(current.getHostId())) {
+
+                peerId = current.getGuestId();
+
+            } else if (callerSocketId.equals(current.getGuestId())) {
+
+                peerId = current.getHostId();
+
+            } else {
+
+                return null;
+
+            }
+
+            sessionMap.remove(callerSocketId);
+            redisTemplate.delete("socket:" + callerSocketId);
+            redisTemplate.delete("room:" + current.getRoomId());
+
+            return peerId;
+
+        } catch (InterruptedException e) {
+
+            Thread.currentThread().interrupt();
+            return null;
+
+        } finally {
+
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+
+        }
     }
 
 

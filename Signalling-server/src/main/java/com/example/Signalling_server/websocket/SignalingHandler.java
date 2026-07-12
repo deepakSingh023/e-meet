@@ -224,96 +224,129 @@ public class SignalingHandler extends TextWebSocketHandler {
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+    public void afterConnectionClosed(
+            WebSocketSession session,
+            CloseStatus status
+    ) throws Exception {
 
         SocketData data =
                 (SocketData) redisTemplate.opsForValue()
                         .get("socket:" + session.getId());
 
-        if(data == null){
-            return;
-        }
-        Room room =
-                roomService.getRoom(data.getRoomId());
-
-        if(room == null){
+        if (data == null) {
             roomService.removeSession(session);
             return;
         }
 
+        Room room = roomService.getRoom(data.getRoomId());
 
+        if (room == null) {
+
+            roomService.removeSession(session);
+            return;
+        }
+
+        String peerId =
+                roomService.cleanupRoom(room, session.getId());
+
+        if (peerId == null) {
+            return;
+        }
+
+        if (roomService.existsInSocket(peerId)) {
+
+            send(
+                    roomService.provideSession(peerId),
+                    new SignalMessage(
+                            "BYE",
+                            room.getRoomId(),
+                            null
+                    )
+            );
+
+        } else {
+
+            SocketData peer =
+                    (SocketData) redisTemplate.opsForValue()
+                            .get("socket:" + peerId);
+
+            if (peer != null) {
+
+                redisTemplate.convertAndSend(
+                        "signal:" + peer.getInstanceId(),
+                        new RedisSignalMessage(
+                                peerId,
+                                new SignalMessage(
+                                        "BYE",
+                                        room.getRoomId(),
+                                        null
+                                )
+                        )
+                );
+            }
+        }
     }
 
 
     private void handleEndCall(WebSocketSession session, SignalMessage msg) throws Exception {
 
+        Room room = roomService.getRoom(msg.roomId());
 
+        if (room == null) {
 
-        Room room = (Room) redisTemplate.opsForValue().get(
-                "room:" + msg.roomId()
-        );
-
-        if(room == null){
+            roomService.removeSession(session);
             session.close();
             return;
+
         }
 
-        if(session.getId().equals(room.getHostId())){
+        String peerId =
+                roomService.endCall(room, session.getId());
 
-            //this is for the receiver check if the user exists in the instance if not send a pub sub call
-            boolean receiverExists = roomService.existsInSocket(room.getGuestId());
-            if(receiverExists){
-                send(
-                        roomService.provideSession(room.getGuestId()),
-                        new SignalMessage(
-                                "BYE",
-                                msg.roomId(),
-                                null
+        if (peerId == null) {
 
+            session.close();
+            return;
+
+        }
+
+        if (roomService.existsInSocket(peerId)) {
+
+            send(
+                    roomService.provideSession(peerId),
+                    new SignalMessage(
+                            "BYE",
+                            room.getRoomId(),
+                            null
+                    )
+            );
+
+        } else {
+
+            SocketData peer =
+                    (SocketData) redisTemplate.opsForValue()
+                            .get("socket:" + peerId);
+
+            if (peer != null) {
+
+                redisTemplate.convertAndSend(
+                        "signal:" + peer.getInstanceId(),
+                        new RedisSignalMessage(
+                                peerId,
+                                new SignalMessage(
+                                        "BYE",
+                                        room.getRoomId(),
+                                        null
+                                )
                         )
                 );
 
-            }else {
-                SocketData data = (SocketData) redisTemplate.opsForValue().get("socket:" + room.getGuestId());
-
-                if (data == null) {
-                    return;
-                }
-                redisTemplate.convertAndSend("signal:" + data.getInstanceId(), new RedisSignalMessage(room.getGuestId(),new SignalMessage("BYE",room.getRoomId(),null)));
             }
-
-            roomService.removeSession(session);
-            redisTemplate.delete("room:" + msg.roomId());
-
-
-        }else if( session.getId().equals(room.getGuestId())){
-
-            //this is for the receiver check if the user exists in the instance if not send a pub sub call
-            boolean receiverExists = roomService.existsInSocket(room.getHostId());
-            if(receiverExists){
-                send(
-                        roomService.provideSession(room.getHostId()),
-                        new SignalMessage(
-                                "BYE",
-                                msg.roomId(),
-                                null
-
-                        )
-                );
-
-            }else {
-                SocketData data = (SocketData) redisTemplate.opsForValue().get("socket:" + room.getHostId());
-                if (data == null) {
-                    return;
-                }
-                redisTemplate.convertAndSend("signal:" + data.getInstanceId(), new RedisSignalMessage(room.getHostId(),new SignalMessage("BYE",room.getRoomId(),null)));
-            }
-
-            roomService.removeSession(session);
-            redisTemplate.delete("room:" + msg.roomId());
 
         }
+
         session.close();
+
 
     }
 
@@ -327,6 +360,11 @@ public class SignalingHandler extends TextWebSocketHandler {
 
         //Passing the room to the service to avoid another search to get the room
         boolean ready = roomService.markReadyStatus(session, room);
+
+        redisTemplate.opsForValue().set(
+                "socket:" + session.getId(),
+                new SocketData(message.roomId(),info.getInstanceId())
+        );
 
         if (ready) {
 
@@ -357,10 +395,7 @@ public class SignalingHandler extends TextWebSocketHandler {
 
         }
 
-        redisTemplate.opsForValue().set(
-                "socket:" + session.getId(),
-                new SocketData(message.roomId(),info.getInstanceId())
-        );
+
 
     }
 

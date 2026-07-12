@@ -3,14 +3,12 @@ import { socket } from "../service/websockets";
 import { useWebRTC } from "../hooks/useWebrtc";
 import { useSocketHandlers } from "../hooks/useSocketHandlers";
 import { useMediaControls } from "../hooks/useMediaController";
-import { useExperiment } from "../hooks/useExperiment";
 import { VideoPanel } from "../components/VideoPanel";
 import { ControlBar } from "../components/ControlBar";
-import { MetricsBoard } from "../components/MetricBoard";
+
 
 export function Room(): React.JSX.Element {
 
-    const API_URL = import.meta.env.VITE_API_URL;
     const { roomId } = useParams();
 
     const {
@@ -20,7 +18,6 @@ export function Room(): React.JSX.Element {
         remoteVideoRef,
         isMediaReady,
         iceCandidatesQueue,
-        isPeerConnected
     } = useWebRTC(roomId);
 
     const endCall = () => {
@@ -48,14 +45,6 @@ export function Room(): React.JSX.Element {
 
     const { mute, video, toggleVideo, toggleAudio } = useMediaControls(localVideoRef);
 
-    const { liveMetrics } = useExperiment({
-        isPeerConnected,
-        isMediaReady,
-        peerDataType,
-        peerConnection,
-        apiUrl: API_URL,
-        endCall
-    });
 
     return (
         <div className="min-h-screen p-4 md:p-6 bg-slate-100">
@@ -76,8 +65,6 @@ export function Room(): React.JSX.Element {
                 <VideoPanel title="Local Video" videoRef={localVideoRef} muted />
                 <VideoPanel title="Remote Video" videoRef={remoteVideoRef} />
             </div>
-
-            {liveMetrics && <MetricsBoard metrics={liveMetrics} />}
 
         </div>
     );
