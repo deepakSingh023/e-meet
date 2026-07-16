@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { MutableRefObject, RefObject } from "react";
 import { socket } from "../service/websockets";
 import { processQueuedCandidates } from "../utils/processCandidates";
+import { getRoomMetadata, resolveAvatarUrl } from "../api/profileApi";
+import type { RemotePeer } from "../types/profile";
 import type { PeerDataType } from "./useWebrtc";
 
 interface UseSocketHandlersParams {
@@ -17,6 +19,12 @@ interface UseSocketHandlersParams {
  * Sends READY on mount and handles every incoming signaling message
  * (PEER_JOINED / OFFER / ANSWER / ICE_CANDIDATE / BYE). Pure signaling -
  * the actual peer connection setup lives in useWebRTC.
+ *
+ * Also resolves who's on the other end of the call. Only the receiver
+ * gets an OFFER and only the sender gets an ANSWER, so fetching
+ * /api/profile/get-metadata in both of those cases (instead of just one)
+ * covers both roles — each side fetches it exactly once, right when it
+ * has confirmation the peer is actually in the room.
  */
 export function useSocketHandlers({
     roomId,
@@ -27,7 +35,27 @@ export function useSocketHandlers({
     remoteVideoRef
 }: UseSocketHandlersParams) {
 
+    const [remotePeer, setRemotePeer] = useState<RemotePeer | null>(null);
+
     useEffect(() => {
+
+        // Best-effort: doesn't block or delay signaling either way. If it fails
+        // (guest room, metadata not yet set, etc.) the UI just falls back to a
+        // generic label/avatar for the remote panel.
+        const fetchRemotePeer = () => {
+            if (!roomId) return;
+            getRoomMetadata(roomId)
+                .then((meta) => {
+                    setRemotePeer({
+                        userId: meta.userId,
+                        username: meta.username || "Guest",
+                        avatarUrl: resolveAvatarUrl(meta.avatar),
+                    });
+                })
+                .catch((err) => {
+                    console.warn("Could not fetch remote peer metadata:", err);
+                });
+        };
 
         const handleReadySocket = () => {
             console.log("WebSocket is open and ready for communication.");
@@ -84,6 +112,9 @@ export function useSocketHandlers({
 
                     peerDataType.current = "REMOTE";
 
+                    // Receiver's turn to learn who sent the offer
+                    fetchRemotePeer();
+
                     try {
                         console.log(isMediaReady.current);
 
@@ -117,6 +148,10 @@ export function useSocketHandlers({
 
                 case "ANSWER":
                     console.log("Answer received");
+
+                    // Sender's turn to learn who answered
+                    fetchRemotePeer();
+
                     try {
                         await peerConnection.setRemoteDescription(data.payload);
                         console.log("Remote description set successfully.");
@@ -165,4 +200,6 @@ export function useSocketHandlers({
         };
 
     }, [roomId, peerConnection, peerDataType, isMediaReady, iceCandidatesQueue, remoteVideoRef]);
+
+    return { remotePeer };
 }
