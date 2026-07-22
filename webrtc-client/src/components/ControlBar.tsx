@@ -1,12 +1,22 @@
 interface ControlBarProps {
     video: boolean;
     mute: boolean;
+    isSharingScreen: boolean;
     onToggleVideo: () => void;
     onToggleAudio: () => void;
+    onToggleScreenShare: () => void;
     onEndCall: () => void;
 }
 
-export function ControlBar({ video, mute, onToggleVideo, onToggleAudio, onEndCall }: ControlBarProps) {
+export function ControlBar({
+    video,
+    mute,
+    isSharingScreen,
+    onToggleVideo,
+    onToggleAudio,
+    onToggleScreenShare,
+    onEndCall
+}: ControlBarProps) {
     return (
         <div className="flex flex-wrap gap-3 mb-6 max-w-6xl mx-auto">
             <button
@@ -28,6 +38,17 @@ export function ControlBar({ video, mute, onToggleVideo, onToggleAudio, onEndCal
                 }`}
             >
                 {mute ? "Unmute Mic" : "Mute Mic"}
+            </button>
+
+            <button
+                onClick={onToggleScreenShare}
+                className={`px-4 py-2 text-sm font-semibold text-white rounded-lg shadow-md active:scale-95 transition-all duration-150 ${
+                    isSharingScreen
+                        ? "bg-amber-600 hover:bg-amber-700"
+                        : "bg-slate-600 hover:bg-slate-700"
+                }`}
+            >
+                {isSharingScreen ? "Stop Sharing" : "🖥️ Share Screen"}
             </button>
 
             {/* High-Visibility, Responsive End Call Button */}

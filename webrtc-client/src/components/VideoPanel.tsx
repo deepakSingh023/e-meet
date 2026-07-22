@@ -8,6 +8,13 @@ interface VideoPanelProps {
     avatarUrl?: string | null;
     /** Only meaningful for the local panel — true when the user has turned their camera off */
     isCameraOff?: boolean;
+    /**
+     * "camera" (default) = normal local/remote camera panel, with the
+     * camera-off avatar placeholder and "waiting for peer" placeholder.
+     * "screen" = screen-share panel: just the video + a small label,
+     * none of the camera-specific placeholders apply.
+     */
+    variant?: "camera" | "screen";
 }
 
 export function VideoPanel({
@@ -17,8 +24,10 @@ export function VideoPanel({
     username,
     avatarUrl,
     isCameraOff = false,
+    variant = "camera",
 }: VideoPanelProps) {
     const initials = username ? username.charAt(0).toUpperCase() : "?";
+    const isScreenShare = variant === "screen";
 
     return (
         <div className="flex flex-col">
@@ -32,34 +41,43 @@ export function VideoPanel({
                     autoPlay
                     muted={muted}
                     playsInline
-                    className={`w-full h-full object-cover ${isCameraOff ? "invisible" : "visible"}`}
+                    className={`w-full h-full ${isScreenShare ? "object-contain" : "object-cover"} ${!isScreenShare && isCameraOff ? "invisible" : "visible"}`}
                 />
 
-                {/* Camera-off placeholder — own pic + name, replaces the (blank) video feed */}
-                {isCameraOff && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-800">
-                        <Avatar avatarUrl={avatarUrl} initials={initials} size={72} />
-                        {username && (
-                            <span className="text-white text-sm font-medium">{username}</span>
+                {isScreenShare ? (
+                    // Screen-share panels just get a small "presenting" style label.
+                    <div className="absolute bottom-2 left-2 bg-black/50 backdrop-blur-sm rounded-full px-3 py-1">
+                        <span className="text-white text-xs font-medium">🖥️ {title}</span>
+                    </div>
+                ) : (
+                    <>
+                        {/* Camera-off placeholder — own pic + name, replaces the (blank) video feed */}
+                        {isCameraOff && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-800">
+                                <Avatar avatarUrl={avatarUrl} initials={initials} size={72} />
+                                {username && (
+                                    <span className="text-white text-sm font-medium">{username}</span>
+                                )}
+                            </div>
                         )}
-                    </div>
-                )}
 
-                {/* Waiting-for-peer placeholder — remote panel before we've resolved who joined */}
-                {!isCameraOff && !username && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-slate-400 text-sm">Waiting for peer…</span>
-                    </div>
-                )}
+                        {/* Waiting-for-peer placeholder — remote panel before we've resolved who joined */}
+                        {!isCameraOff && !username && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-slate-400 text-sm">Waiting for peer…</span>
+                            </div>
+                        )}
 
-                {/* Name badge — always shown once we know who this feed belongs to */}
-                {username && (
-                    <div className="absolute bottom-2 left-2 flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-full pl-1 pr-3 py-1">
-                        <Avatar avatarUrl={avatarUrl} initials={initials} size={22} />
-                        <span className="text-white text-xs font-medium truncate max-w-[140px]">
-                            {username}
-                        </span>
-                    </div>
+                        {/* Name badge — always shown once we know who this feed belongs to */}
+                        {username && (
+                            <div className="absolute bottom-2 left-2 flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-full pl-1 pr-3 py-1">
+                                <Avatar avatarUrl={avatarUrl} initials={initials} size={22} />
+                                <span className="text-white text-xs font-medium truncate max-w-[140px]">
+                                    {username}
+                                </span>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>

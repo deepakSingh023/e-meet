@@ -20,14 +20,16 @@ public class SocketSender {
             SignalMessage msg
     ) throws Exception {
 
-        if(session==null || !session.isOpen()){
+        if (session == null || !session.isOpen()) {
             return;
         }
 
-        session.sendMessage(
-                new TextMessage(
-                        mapper.writeValueAsString(msg)
-                )
-        );
+        synchronized (session) {
+            session.sendMessage(
+                    new TextMessage(
+                            mapper.writeValueAsString(msg)
+                    )
+            );
+        }
     }
 }

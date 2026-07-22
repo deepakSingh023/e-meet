@@ -17,6 +17,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.io.IOException;
+
 @Component
 @RequiredArgsConstructor
 public class SignalingHandler extends TextWebSocketHandler {
@@ -71,6 +73,12 @@ public class SignalingHandler extends TextWebSocketHandler {
                     session,
                     msg
                  );
+
+            case "VIDEO_ENABLED"-> relayState(session,msg,"VIDEO_ENABLED");
+            case "VIDEO_DISABLED" -> relayState(session,msg,"VIDEO_DISABLED");
+
+            case "SCREEN_SHARE_STARTED" -> relayState(session,msg,"SCREEN_SHARE_STARTED");
+            case "SCREEN_SHARE_STOPPED" -> relayState(session,msg,"SCREEN_SHARE_STOPPED");
             case "END_CALL" -> handleEndCall(session, msg);
         }
     }
@@ -181,13 +189,20 @@ public class SignalingHandler extends TextWebSocketHandler {
             return;
         }
 
-        session.sendMessage(
-                new TextMessage(
-                        mapper.writeValueAsString(
-                                message
-                        )
-                )
+        log.info(
+            "Sending {} to {} thread={}",
+            message.type(),
+            session.getId(),
+            Thread.currentThread().getName()
         );
+
+        synchronized (session) {
+            session.sendMessage(
+                    new TextMessage(
+                            mapper.writeValueAsString(message)
+                    )
+            );
+        }
     }
 
     private String getTarget(
@@ -396,6 +411,40 @@ public class SignalingHandler extends TextWebSocketHandler {
         }
 
 
+
+    }
+
+    private void relayState(
+            WebSocketSession session,
+            SignalMessage msg,
+            String event
+    ) throws Exception{
+
+        Room room = roomService.getRoom(msg.roomId());
+
+        if(room == null){
+            return;
+        }
+
+        String otherId = room.getHostId().equals(session.getId())
+                ? room.getGuestId()
+                : room.getHostId();
+
+        WebSocketSession otherUser = roomService.provideSession(otherId);
+
+        if (otherUser == null) {
+            return;
+        }
+
+
+        send(
+                otherUser,
+                new SignalMessage(
+                        event,
+                        room.getRoomId(),
+                        null
+                )
+        );
 
     }
 

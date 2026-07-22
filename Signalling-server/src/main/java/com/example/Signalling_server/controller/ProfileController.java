@@ -44,7 +44,12 @@ public class ProfileController {
             @RequestParam String roomId
 
     ){
-        String userId = authentication.getName();
+
+        String userId =
+                authentication != null
+                        ? authentication.getName()
+                        : null;
+
 
         profileService.setMetadata(userId,roomId);
 
@@ -58,7 +63,10 @@ public class ProfileController {
             @RequestParam String roomId
     ){
 
-        String userId = authentication.getName();
+        String userId =
+                authentication != null
+                        ? authentication.getName()
+                        : null;
 
         MetaDataResponse dataResponse = profileService.getMetadata(roomId,userId);
 

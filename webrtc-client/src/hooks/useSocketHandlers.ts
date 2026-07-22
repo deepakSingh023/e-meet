@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback} from "react";
 import type { MutableRefObject, RefObject } from "react";
 import { socket } from "../service/websockets";
 import { processQueuedCandidates } from "../utils/processCandidates";
@@ -13,17 +13,24 @@ interface UseSocketHandlersParams {
     isMediaReady: MutableRefObject<boolean>;
     iceCandidatesQueue: MutableRefObject<RTCIceCandidateInit[]>;
     remoteVideoRef: RefObject<HTMLVideoElement>;
+    /** Called when the peer signals they've stopped sharing their screen. */
+    onScreenShareStop: () => void;
 }
 
 /**
  * Sends READY on mount and handles every incoming signaling message
- * (PEER_JOINED / OFFER / ANSWER / ICE_CANDIDATE / BYE). Pure signaling -
- * the actual peer connection setup lives in useWebRTC.
+ * (PEER_JOINED / OFFER / ANSWER / ICE_CANDIDATE / VIDEO_ENABLED /
+ * VIDEO_DISABLED / SCREEN_SHARE_STARTED / SCREEN_SHARE_STOPPED / BYE).
+ * Pure signaling - the actual peer connection setup lives in useWebRTC.
+ *
+ * OFFER/ANSWER are reused as-is for screen-share renegotiation too -
+ * adding/removing the screen track on the same RTCPeerConnection just
+ * triggers a fresh offer/answer round trip, same handling either way.
  *
  * Also resolves who's on the other end of the call. Only the receiver
  * gets an OFFER and only the sender gets an ANSWER, so fetching
  * /api/profile/get-metadata in both of those cases (instead of just one)
- * covers both roles — each side fetches it exactly once, right when it
+ * covers both roles - each side fetches it exactly once, right when it
  * has confirmation the peer is actually in the room.
  */
 export function useSocketHandlers({
@@ -32,10 +39,12 @@ export function useSocketHandlers({
     peerDataType,
     isMediaReady,
     iceCandidatesQueue,
-    remoteVideoRef
+    remoteVideoRef,
+    onScreenShareStop
 }: UseSocketHandlersParams) {
 
     const [remotePeer, setRemotePeer] = useState<RemotePeer | null>(null);
+    const [remoteCameraOff, setRemoteCameraOff] = useState(false);
 
     useEffect(() => {
 
@@ -176,6 +185,25 @@ export function useSocketHandlers({
                     }
                     break;
 
+                case "VIDEO_ENABLED":
+                    console.log("Peer turned camera on");
+                    setRemoteCameraOff(false);
+                    break;
+
+                case "VIDEO_DISABLED":
+                    console.log("Peer turned camera off");
+                    setRemoteCameraOff(true);
+                    break;
+
+                case "SCREEN_SHARE_STARTED":
+                    console.log("Peer started screen share");
+                    break;
+
+                case "SCREEN_SHARE_STOPPED":
+                    console.log("Peer stopped screen share");
+                    onScreenShareStop();
+                    break;
+
                 case "BYE":
                     console.log("Peer has left the room.");
 
@@ -199,7 +227,7 @@ export function useSocketHandlers({
             socket.onmessage = null;
         };
 
-    }, [roomId, peerConnection, peerDataType, isMediaReady, iceCandidatesQueue, remoteVideoRef]);
+    }, [roomId, peerConnection, peerDataType, isMediaReady, iceCandidatesQueue, remoteVideoRef, onScreenShareStop]);
 
-    return { remotePeer };
+    return { remotePeer, remoteCameraOff };
 }

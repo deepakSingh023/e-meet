@@ -66,7 +66,11 @@ public class ProfileService {
     public void setMetadata(String userId, String roomId) {
         String redisKey = "room-metadata:" + roomId;
 
-        User user = authRepository.findById(userId).orElse(null);
+        User user = null;
+
+        if (userId != null) {
+            user = authRepository.findById(userId).orElse(null);
+        }
 
         String currentUserId = (user != null) ? user.getId() : null;
         String currentName = (user != null && user.getUsername() != null) ? user.getUsername() : "unknown";
@@ -89,40 +93,50 @@ public class ProfileService {
         redisTemplate.opsForValue().set(redisKey, metadata, 2, java.util.concurrent.TimeUnit.HOURS);
     }
 
-    public MetaDataResponse getMetadata(String roomId , String userId){
+    public MetaDataResponse getMetadata(String roomId, String userId) {
 
         String redisKey = "room-metadata:" + roomId;
 
-        RoomMetadata data = (RoomMetadata) redisTemplate.opsForValue().get(redisKey);
+        RoomMetadata data =
+                (RoomMetadata) redisTemplate.opsForValue().get(redisKey);
 
-        if(data == null){
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"data not found in the redis");
+        if (data == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "data not found in redis"
+            );
         }
 
-        if(data.getUser1Id()==null && data.getUser2Id() == null){
-
+        if (data.getUser1Id() == null && data.getUser2Id() == null) {
             return new MetaDataResponse(
                     null,
                     "unknown",
                     "default.png"
             );
-
         }
 
-        if (data.getUser1Id() != null && data.getUser1Id().equals(userId)){
-            return new MetaDataResponse(data.getUser2Id(),
+        if (Objects.equals(data.getUser1Id(), userId)) {
+            return new MetaDataResponse(
+                    data.getUser2Id(),
                     data.getUser2Name(),
-                    data.getUser2Avatar());
+                    data.getUser2Avatar()
+            );
         }
 
+        if (Objects.equals(data.getUser2Id(), userId)) {
+            return new MetaDataResponse(
+                    data.getUser1Id(),
+                    data.getUser1Name(),
+                    data.getUser1Avatar()
+            );
+        }
+
+        // Anonymous caller (or user not found in room)
         return new MetaDataResponse(
                 data.getUser1Id(),
                 data.getUser1Name(),
                 data.getUser1Avatar()
         );
-
     }
-
-
 }
 
