@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { socket } from "../service/websockets";
-import type { MutableRefObject } from "react";
 /**
  * Screen share rides on the SAME RTCPeerConnection as the camera call -
  * it's just a second video track, added/removed via addTrack/removeTrack.
@@ -57,6 +56,14 @@ export function useScreenShare(
             })
         );
 
+        console.log(
+            peerConnection.getSenders().map((s, i) => ({
+                index: i,
+                kind: s.track?.kind,
+                id: s.track?.id
+            }))
+        );
+
         peerConnection.removeTrack(screenSenderRef.current);
         
         console.log(
@@ -65,7 +72,7 @@ export function useScreenShare(
             peerConnection.getTransceivers().length
         );
         
-        screenSenderRef.current = null;
+        //screenSenderRef.current = null;
 
         screenStreamRef.current?.getTracks().forEach(track => track.stop());
         screenStreamRef.current = null;
@@ -98,6 +105,28 @@ export function useScreenShare(
                 console.log("Reusing inactive sender");
             
                 await reusableSender.replaceTrack(screenTrack);
+
+                const transceiver = peerConnection
+                    .getTransceivers()
+                    .find(t => t.sender === reusableSender);
+                
+                if (transceiver) {
+                    transceiver.direction = "sendrecv";
+                }
+                
+                console.log(
+                    reusableSender.transport,
+                    reusableSender.track,
+                    reusableSender.track?.kind
+                );
+            
+                
+                console.log(
+                    "direction",
+                    transceiver?.direction,
+                    "current",
+                    transceiver?.currentDirection
+                );
                 screenSenderRef.current = reusableSender;
             } else {
                 console.log("Creating new sender");

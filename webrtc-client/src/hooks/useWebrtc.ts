@@ -34,7 +34,8 @@ export function useWebRTC(roomId: string | undefined) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const remoteScreenVideoRef = useRef<HTMLVideoElement>(null);
-    const remoteScreenStreamRef = useRef<MediaStream | null>(null);
+    const [remoteScreenStream, setRemoteScreenStream] =
+    useState<MediaStream | null>(null);
 
     const isMediaReady = useRef(false);
     const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
@@ -42,13 +43,13 @@ export function useWebRTC(roomId: string | undefined) {
 
     const clearRemoteScreenShare = useCallback(() => {
     
-        if (remoteScreenStreamRef.current) {
-            remoteScreenStreamRef.current.getTracks().forEach(track => {
+        if (remoteScreenStream) {
+            remoteScreenStream.getTracks().forEach(track => {
                 track.stop();
             });
         }
-    
-        remoteScreenStreamRef.current = null;
+        
+        setRemoteScreenStream(null);
     
         if (remoteScreenVideoRef.current) {
             remoteScreenVideoRef.current.pause();
@@ -79,17 +80,12 @@ export function useWebRTC(roomId: string | undefined) {
 
             if (isScreenShareStream) {
                 console.log("Treating incoming stream as SCREEN SHARE");
+                        
+            setRemoteScreenStream(incomingStream);
             
-                remoteScreenStreamRef.current = incomingStream;
+            setIsRemoteSharingScreen(true);
             
-                setIsRemoteSharingScreen(true);
-            
-                event.track.onended = () => {
-                    console.log("Remote screen-share track ended");
-                    clearRemoteScreenShare();
-                };
-            
-                return;
+            return;
             }
 
             if (!remoteVideoRef.current) {
@@ -197,6 +193,7 @@ export function useWebRTC(roomId: string | undefined) {
             }
 
             remoteCameraStreamIdRef.current = null;
+            setRemoteScreenStream(null);
 
             peerConnection.close();
             peerConnectionRef.current = null;
@@ -204,14 +201,37 @@ export function useWebRTC(roomId: string | undefined) {
     }, [roomId, peerConnection]);
 
     useEffect(() => {
+        console.log("SCREEN EFFECT");
+    
+        console.log(
+            "sharing",
+            isRemoteSharingScreen
+        );
+    
+        console.log(
+            "video ref",
+            remoteScreenVideoRef.current
+        );
+    
+        console.log(
+            "stream",
+            remoteScreenStream
+        );
+    
         if (!isRemoteSharingScreen) return;
         if (!remoteScreenVideoRef.current) return;
-        if (!remoteScreenStreamRef.current) return;
+        if (!remoteScreenStream) return;
     
-        remoteScreenVideoRef.current.srcObject = remoteScreenStreamRef.current;
+        console.log("ATTACHING STREAM");
     
-        remoteScreenVideoRef.current.play().catch(console.error);
-    }, [isRemoteSharingScreen]);
+        remoteScreenVideoRef.current.srcObject =
+            remoteScreenStream;
+    
+        remoteScreenVideoRef.current.play()
+            .then(() => console.log("SCREEN PLAY OK"))
+            .catch(console.error);
+    
+    }, [remoteScreenStream , isRemoteSharingScreen]);
 
     return {
         peerConnection,

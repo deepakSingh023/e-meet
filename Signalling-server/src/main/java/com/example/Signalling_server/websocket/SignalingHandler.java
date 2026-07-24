@@ -426,6 +426,7 @@ public class SignalingHandler extends TextWebSocketHandler {
             return;
         }
 
+
         String otherId = room.getHostId().equals(session.getId())
                 ? room.getGuestId()
                 : room.getHostId();
@@ -435,6 +436,12 @@ public class SignalingHandler extends TextWebSocketHandler {
         if (otherUser == null) {
             return;
         }
+
+        log.info("otherId={}", otherId);
+
+        log.info("session={}", otherUser);
+
+        log.info("isOpen={}", otherUser != null && otherUser.isOpen());
 
 
         send(
